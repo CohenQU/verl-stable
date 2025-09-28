@@ -1,4 +1,4 @@
-working_dir: /home/asetlur/math-curriculum
+working_dir: /home/yuxiaoq/workspace/verl-stable
 excludes: ["/.git/", "./outputs", "./data", "./core"]
 env_vars:
   TORCH_NCCL_AVOID_RECORD_STREAMS: "1"

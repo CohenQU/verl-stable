@@ -23,7 +23,7 @@ from torch import nn
 from torch.distributed.fsdp import FullyShardedDataParallel as FSDP
 
 from verl import DataProto
-from verl.trainer.ppo.core_algos import compute_policy_loss, kl_penalty, agg_loss
+from verl.trainer.ppo.core_algos import compute_policy_loss, kl_penalty, agg_loss, compute_sft_loss
 from verl.workers.actor import BasePPOActor
 from verl.utils.py_functional import append_to_dict
 from verl.utils.torch_functional import logprobs_from_logits, masked_mean
@@ -241,6 +241,8 @@ class DataParallelPPOActor(BasePPOActor):
         select_keys = ['responses', 'input_ids', 'attention_mask', 'position_ids', 'old_log_probs', 'advantages']
         if self.config.use_kl_loss:
             select_keys.append('ref_log_prob')
+        select_keys.append('reward_tensor')
+        
         batch = data.select(batch_keys=select_keys).batch
         has_multi_modal_inputs = 'multi_modal_inputs' in data.non_tensor_batch.keys()
 
@@ -314,11 +316,28 @@ class DataParallelPPOActor(BasePPOActor):
                         cliprange_low=clip_ratio_low,
                         cliprange_high=clip_ratio_high,
                         clip_ratio_c=clip_ratio_c)
+
                     # compute entropy loss from entropy
                     entropy_loss = agg_loss(loss_mat=entropy, loss_mask=response_mask, loss_agg_mode=loss_agg_mode)
 
                     # compute policy loss
                     policy_loss = pg_loss - entropy_loss * entropy_coeff
+                    print(f"Start to compuate sft loss")
+                    sft_loss_coeff = self.config.get("sft_loss_coeff", 0.0)
+                    print(f"sft_loss_coeff: {sft_loss_coeff}")
+                    print(f"data keys: {data.keys()}")
+                    if 'reward_tensor' in data:
+                        print(f"reward_tensor in data")
+                    if self.config.get("sft_loss_coeff", 0.0) > 0 and 'reward_tensor' in data:
+                        sft_loss = compute_sft_loss(
+                            log_prob=log_prob,
+                            reward_tensor=data['reward_tensor'],
+                            response_mask=response_mask,
+                            loss_agg_mode="token-mean"
+                        )
+                        policy_loss = policy_loss + self.config.sft_loss_coeff * sft_loss
+                        metrics['actor/sft_loss'] = sft_loss.item()
+                        metrics['actor/sft_loss_coeff'] = self.config.sft_loss_coeff
 
                     if self.config.use_kl_loss:
                         ref_log_prob = data['ref_log_prob']

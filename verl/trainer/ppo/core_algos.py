@@ -450,6 +450,50 @@ def compute_policy_loss(old_log_prob,
 
     return pg_loss, pg_clipfrac, ppo_kl, pg_clipfrac_lower
 
+def compute_sft_loss(
+    log_prob: torch.Tensor,
+    reward_tensor: torch.Tensor,
+    response_mask: torch.Tensor,
+    loss_agg_mode: str = "token-mean"
+) -> torch.Tensor:
+    """
+    Compute supervised fine-tuning (SFT) loss on only the responses with reward = 1.
+
+    Args:
+        log_prob: (torch.Tensor)
+            shape: (bs, response_length). Log-probabilities of the model's predictions.
+        reward_tensor: (torch.Tensor)
+            shape: (bs, response_length). Token-level reward signal (binary: 0 or 1).
+        response_mask: (torch.Tensor)
+            shape: (bs, response_length). Mask to indicate valid response tokens.
+        loss_agg_mode: (str)
+            Aggregation mode: "token-mean", "seq-mean-token-sum", or "seq-mean-token-mean".
+
+    Returns:
+        sft_loss: (torch.Tensor)
+            A scalar tensor representing the average supervised loss over reward=1 responses.
+    """
+    
+    with torch.no_grad():
+        print(f"[SFT Loss] reward_tensor shape: {reward_tensor.shape}")  # (bs, response_length)
+        reward_sum = reward_tensor.sum(dim=-1)  # (bs,)
+        print(f"[SFT Loss] reward_sum shape: {reward_sum.shape}, values: {reward_sum}")
+        reward_mask = (reward_sum == 1).unsqueeze(-1).float()  # (bs, 1)
+
+    # Mask to select only tokens from responses that were correct (reward = 1)
+    sft_mask = reward_mask * response_mask  # (bs, response_length)
+
+    # Negative log-likelihood loss
+    sft_loss_mat = -log_prob  # (bs, response_length)
+
+    # Aggregate the loss
+    sft_loss = agg_loss(
+        loss_mat=sft_loss_mat,
+        loss_mask=sft_mask,
+        loss_agg_mode=loss_agg_mode
+    )
+
+    return sft_loss
 
 def compute_entropy_loss(logits, response_mask):
     """Compute Categorical entropy loss

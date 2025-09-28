@@ -194,6 +194,9 @@ def compute_data_metrics(batch: DataProto, use_critic: bool = True, experiment_n
     else:
         diffulties = batch.non_tensor_batch['level']
 
+    zero_advantage_1_ratio_by_difficulty = defaultdict(list)
+    zero_advantage_0_ratio_by_difficulty = defaultdict(list)
+
     for difficulty, reward, length, v_cnt, adv, mask in zip(diffulties, sequence_reward, response_length, verification_cnts, advantages, response_mask):
         binary_reward = 1 if reward > 0.9 else 0
         
@@ -205,7 +208,12 @@ def compute_data_metrics(batch: DataProto, use_critic: bool = True, experiment_n
             incorrect_lengths_by_difficulty[difficulty].append(length.detach().item())
             incorrect_verifications_by_difficulty[difficulty].append(v_cnt)
     
-        zero_advantage_ratio_by_difficulty[difficulty].append(adv[0] == 0.)
+        is_zero_adv = (adv[0] == 0.)
+        zero_advantage_ratio_by_difficulty[difficulty].append(is_zero_adv)
+
+        # **Simplified logic: directly log with combined condition**
+        zero_advantage_1_ratio_by_difficulty[difficulty].append(is_zero_adv and binary_reward == 1)
+        zero_advantage_0_ratio_by_difficulty[difficulty].append(is_zero_adv and binary_reward == 0)
 
     for difficulty in rewards_by_difficulty:
         mean_reward = np.mean(rewards_by_difficulty[difficulty])
@@ -237,6 +245,12 @@ def compute_data_metrics(batch: DataProto, use_critic: bool = True, experiment_n
         metrics[f'difficulty/verification/{difficulty}'] = mean_v_cnt
 
         metrics[f'difficulty/zero_advantage_ratio/{difficulty}'] = np.mean(zero_advantage_ratio_by_difficulty[difficulty])
+        metrics[f'difficulty/zero_advantage_1_ratio/{difficulty}'] = np.mean(zero_advantage_1_ratio_by_difficulty[difficulty])
+        metrics[f'difficulty/zero_advantage_0_ratio/{difficulty}'] = np.mean(zero_advantage_0_ratio_by_difficulty[difficulty])
+        metrics[f'difficulty/zero_advantage_sum/{difficulty}'] = np.sum(zero_advantage_ratio_by_difficulty[difficulty])
+        metrics[f'difficulty/zero_advantage_0_sum/{difficulty}'] = np.sum(zero_advantage_1_ratio_by_difficulty[difficulty])
+        metrics[f'difficulty/zero_advantage_1_sum/{difficulty}'] = np.sum(zero_advantage_0_ratio_by_difficulty[difficulty])
+
 
     if (global_steps - 1) % test_freq == 0:
         # advantage histograms

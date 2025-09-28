@@ -1024,6 +1024,14 @@ class RayPPOTrainer(object):
                     # generate a batch
                     with _timer('gen', timing_raw):
                         gen_batch_output = self.actor_rollout_wg.generate_sequences(gen_batch)
+                    # with _timer('gen', timing_raw):
+                    #     rollout_micro_batch_size = 32
+                    #     gen_micro_batches = gen_batch.chunk(len(gen_batch) // rollout_micro_batch_size)
+                    #     gen_batch_outputs = []
+                    #     for i, gen_micro_batch in enumerate(gen_micro_batches):
+                    #         gen_batch_outputs.append(self.actor_rollout_wg.generate_sequences(gen_micro_batch))
+                    #         print(f"Finished generating micro batch {i + 1}/{len(gen_micro_batches)}")
+                    #     gen_batch_output = DataProto.concat(gen_batch_outputs)
 
                     if self.config.algorithm.adv_estimator == AdvantageEstimator.REMAX:
                         with _timer('gen_max', timing_raw):
@@ -1095,6 +1103,7 @@ class RayPPOTrainer(object):
                             reward_extra_infos_dict = {}
 
                         batch.batch['token_level_scores'] = reward_tensor
+                        batch.batch['reward_tensor'] = reward_tensor  # save for use in SFT
 
                         print(f'{list(reward_extra_infos_dict.keys())=}')
                         if reward_extra_infos_dict:
